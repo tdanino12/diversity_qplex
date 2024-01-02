@@ -140,7 +140,7 @@ class DMAQ_qattenLearner:
                 target_max_qvals = self.target_mixer(target_max_qvals, batch["state"][:, 1:], is_v=True)
 
         # Calculate 1-step Q-Learning targets
-        targets = rewards + self.args.gamma * (1 - terminated) * target_max_qvals
+        targets = rewards + self.args.gamma * (1 - terminated) * (target_max_qvals -self._calculate_entropy(adv_w_final, x_mac_out))
 
         if show_demo:
             tot_q_data = chosen_action_qvals.detach().cpu().numpy()
@@ -193,6 +193,8 @@ class DMAQ_qattenLearner:
             self._update_targets()
             self.last_target_update_episode = episode_num
 
+    def _calculate_entropy(self, weights, policies):
+    
     def _update_targets(self):
         self.target_mac.load_state(self.mac)
         if self.mixer is not None:
