@@ -48,7 +48,7 @@ class DMAQ_qattenLearner:
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
         avail_actions = batch["avail_actions"]
         actions_onehot = batch["actions_onehot"][:, :-1]
-
+        alpha = max(0.05, 0.5 - t_env / 200000) # linear decay
         # Calculate estimated Q-Values
         mac_out = []
         mac.init_hidden(batch.batch_size)
@@ -83,6 +83,10 @@ class DMAQ_qattenLearner:
         # We don't need the first timesteps Q-Value estimate for calculating targets
         target_mac_out = th.stack(target_mac_out[1:], dim=1)  # Concat across time
 
+        # Mask out unavailable actions
+        policy_outs = target_mac_out.clone()
+        policy_outs[avail_actions[:, 1:] == 0] = 1e-10
+                      
         # Mask out unavailable actions
         target_mac_out[avail_actions[:, 1:] == 0] = -9999999
 
@@ -140,8 +144,11 @@ class DMAQ_qattenLearner:
                 target_max_qvals = self.target_mixer(target_max_qvals, batch["state"][:, 1:], is_v=True)
 
         # Calculate 1-step Q-Learning targets
-        targets = rewards + self.args.gamma * (1 - terminated) * (target_max_qvals +self._calculate_entropy(adv_w_final, x_mac_out))
-
+        ent = self._calculate_entropy(adv_w_final, policy_outs)
+        ent.requires_grad =True
+        #targets = rewards + self.args.gamma * (1 - terminated) * target_max_qvals
+        targets = rewards + self.args.gamma * (1 - terminated) * (target_max_qvals+alpha*ent)
+                      
         if show_demo:
             tot_q_data = chosen_action_qvals.detach().cpu().numpy()
             tot_target = targets.detach().cpu().numpy()
@@ -194,6 +201,33 @@ class DMAQ_qattenLearner:
             self.last_target_update_episode = episode_num
 
     def _calculate_entropy(self, weights, policies):
+
+        #w = weights.reshape(policies.shape[0],policies.shape[1,policies.shape[2]]).clone().detach()
+        w = th.reshape(weights,(policies.shape[0],policies.shape[1],policies.shape[2]))
+        w = w.clone().detach()
+        p = policies.clone().detach()
+
+        entropy = th.zeros(w.shape[0], w.shape[1],1)
+        for i in range(w.shape[0]):
+            for j in range(w.shape[1]):
+                s = th.softmax(w[i,j,:],dim=0) # a weight for each agent
+                policies_k = []
+                for pol in range(w.shape[2]):
+                    x = s[pol].clone()
+                    y = p[i,j,pol,:].clone()
+                    y = th.softmax(y,dim=0)
+                    policies_k.append(x*y)
+
+
+                policies_k = th.stack(policies_k)
+                sum_policy = th.sum(policies_k,dim=0)
+                p_numpy = sum_policy.numpy()
+                logp = np.log2(p_numpy)
+                entropy1 = np.sum(-p_numpy*logp)
+
+                entropy[i,j,0] = th.tensor(entropy1, dtype=th.float32)
+        return entropy
+
     
     def _update_targets(self):
         self.target_mac.load_state(self.mac)
