@@ -41,7 +41,7 @@ class DMAQ_QattenMixer(nn.Module):
             adv_tot = th.sum(adv_q * (adv_w_final - 1.), dim=1)
         else:
             adv_tot = th.sum(adv_q * adv_w_final, dim=1)
-        return adv_tot
+        return adv_tot, adv_w_final
 
     def calc(self, agent_qs, states, actions=None, max_q_i=None, is_v=False):
         if is_v:
@@ -49,7 +49,7 @@ class DMAQ_QattenMixer(nn.Module):
             return v_tot
         else:
             adv_tot = self.calc_adv(agent_qs, states, actions, max_q_i)
-            return adv_tot
+            return adv_tot, adv_w_final
 
     def forward(self, agent_qs, states, actions=None, max_q_i=None, is_v=False):
         bs = agent_qs.size(0)
@@ -65,7 +65,7 @@ class DMAQ_QattenMixer(nn.Module):
             max_q_i = max_q_i.view(-1, self.n_agents)
             max_q_i = w_final * max_q_i + v
 
-        y = self.calc(agent_qs, states, actions=actions, max_q_i=max_q_i, is_v=is_v)
+        y, adv_w_final = self.calc(agent_qs, states, actions=actions, max_q_i=max_q_i, is_v=is_v)
         v_tot = y.view(bs, -1, 1)
 
-        return v_tot, attend_mag_regs, head_entropies
+        return v_tot, attend_mag_regs, head_entropies, adv_w_final
